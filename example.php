@@ -1,57 +1,46 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: andrevanzuydam
- * Date: 2019-08-19
- * Time: 09:30
- */
 
-require_once  "vendor/autoload.php";
+declare(strict_types=1);
 
+require_once "vendor/autoload.php";
 
-$emailReader = new \Utilities\EmailReader("oxyros.co.za", "glocell.oxyros", "jct1969", 143);
+use Utilities\EmailReader;
+use Utilities\EmailReaderError;
+use Utilities\EmailFlag;
 
-
-$mailBox = $emailReader->openMailBox("/notls");
-
-$folders = $emailReader->getMailBoxFolders($mailBox);
-
-$mailBoxFolder = $emailReader->openMailBoxFolder($folders[3]);
-
-$headers = $emailReader->getMailBoxHeaders();
-
-$email = $emailReader->getMessageData(418);
-
-print_r($email);
-//Open a connection to server
-//Get a list of folders from the server
-//Get a list of email headers from one of the folders - how do I know which folder ?
-//Choose an email header - read the message from the server
-//Save any attachments into attachment folder
-
-
-//Manual: Check that the above things have worked.
-
-
-$emailReader = new \Utilities\EmailReader("imap.gmail.com", "username", "password");
-
+// Open a connection to server
+$emailReader = new EmailReader("imap.gmail.com", "username", "password");
 
 $mailBox = $emailReader->openMailBox();
 
+// Get a list of folders from the server
 $folders = $emailReader->getMailBoxFolders();
 
+// Open a specific folder
 $mailBoxFolder = $emailReader->openMailBoxFolder($folders[0]);
 
+// Get all headers in the folder
 $headers = $emailReader->getMailBoxHeaders();
 
+// Read a specific message
 $email = $emailReader->getMessageData(7);
 
+if ($email instanceof EmailReaderError) {
+    print_r($email->getError());
+} else {
+    print_r($email);
+}
+
+// Move a message to another folder
 $sequence = 3;
 $destination = "[Gmail]/Drafts";
 $moveResult = $emailReader->messageMove($sequence, $destination, $mailBoxFolder);
 
+// Copy a message to another folder
 $copyMessage = $emailReader->messageCopy(1, $destination);
 
+// Set a message flag
+$emailReader->setMessageStatus(2, EmailFlag::Seen->value);
 
-
-
+// Close the connection
+$emailReader->close();

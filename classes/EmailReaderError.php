@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Utilities;
 
-use Utilities\ErrorCode;
-
 /**
  * Class EmailReaderError This is an error class for EmailReader
  * @package Utilities

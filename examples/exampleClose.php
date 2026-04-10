@@ -1,13 +1,13 @@
 <?php
 /**
- * Close the IMAPStream
+ * Close the IMAP connection
  */
 
-$emailReader->close(); //Closes current IMAPStream
+$emailReader->close(); //Closes current IMAP connection
 
 /**
- * If you want to close a different IMAPSteam you can parse it as a resource
+ * If you want to close a different IMAP connection you can pass it as a parameter
  */
 $otherMailBoxFolder = $emailReader->openMailBoxFolder($folders[2]);
 
-$emailReader->close($otherMailBoxFolder); //Closes a different IMAPStream
+$emailReader->close($otherMailBoxFolder); //Closes a different IMAP connection
