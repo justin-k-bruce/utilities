@@ -1,21 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * EmailReader is used read and interact with emails from an email server
  */
+
 namespace Utilities;
 
-use Utilities\EmailReaderError;
-
-
-/**
- * Defining constants for setting and clearing flags
- */
-define("EMAIL_SEEN", "\\Seen");
-define("EMAIL_FLAGGED", "\\Flagged");
-define("EMAIL_DELETED", "\\Deleted");
-define("EMAIL_DRAFT", "\\Draft");
-define("EMAIL_ANSWERED", "\\Answered");
+use IMAP\Connection;
 
 /**
  * Class EmailReader Used to hold all the functions required for use
@@ -24,68 +17,67 @@ define("EMAIL_ANSWERED", "\\Answered");
 class EmailReader
 {
     /**
-     * @var IMAPStream Keeps a handle to a mailbox
+     * @var Connection|null Keeps a handle to a mailbox
      */
-    private $mailBox = null;
-    /**
-     * @var String The hostname or address of the email server
-     */
-    private $host = null;
+    private Connection|null $mailBox = null;
 
     /**
-     * @var String Flags passed for specific mail box
+     * @var string|null The hostname or address of the email server
+     */
+    private ?string $host;
+
+    /**
+     * @var string|null Flags passed for specific mail box
      *
      * Link to optional flags: [https://www.php.net/manual/en/function.imap-open.php]
      */
-    private $flags = null;
+    private ?string $flags = null;
 
     /**
-     * @var String $username Username
+     * @var string|null $username Username
      */
-    private $username = null;
+    private ?string $username;
 
     /**
-     * @var String $password Password, don't commit your passwords into your code repo
+     * @var string|null $password Password, don't commit your passwords into your code repo
      */
-    private $password = null;
+    private ?string $password;
 
     /**
-     * @var String object variable Holds the HTML messages
+     * @var string|null Holds the HTML messages
      */
-    private $htmlMessage = null;
+    private ?string $htmlMessage = null;
 
     /**
-     * @var String object variable Holds plain messages
+     * @var string|null Holds plain messages
      */
-    private $plainMessage = null;
+    private ?string $plainMessage = null;
 
     /**
-     * @var String object variable Holds charset
+     * @var string|null Holds charset
      */
-    private $charset = null;
+    private ?string $charset = null;
 
     /**
-     * @var object Holds attachments file names and data
+     * @var array|null Holds attachments file names and data
      */
-    private $attachments = null;
+    private ?array $attachments = null;
 
     /**
-     * @var Integer $port Port to connect to
+     * @var int|null $port Port to connect to
      */
-    public $port = null;
-
+    public ?int $port = null;
 
     /**
-     * * EmailReader constructor.
-     * @param String $host Hostname of the email server
-     * @param String $username Username
-     * @param String $password Password, don't commit your passwords into your code repo
-     * @param Integer $port Port to connect to
+     * EmailReader constructor.
+     * @param string $host Hostname of the email server
+     * @param string $username Username
+     * @param string $password Password, don't commit your passwords into your code repo
+     * @param int $port Port to connect to
      * @example examples/exampleOpen.php
      */
-    function __construct($host, $username, $password, $port = 993)
+    public function __construct(string $host, string $username, string $password, int $port = 993)
     {
-
         $this->host = $host;
         $this->username = $username;
         $this->password = $password;
@@ -93,10 +85,18 @@ class EmailReader
     }
 
     /**
-     * * Handles any IMAP errors or alerts
+     * Checks if the given value is a valid IMAP connection
+     */
+    private function isValidConnection(mixed $connection): bool
+    {
+        return $connection instanceof Connection;
+    }
+
+    /**
+     * Handles any IMAP errors or alerts
      * @return array ["errors" => , "alerts" => ]
      */
-    function handleErrors()
+    public function handleErrors(): array
     {
         $errors = imap_errors();
         $alerts = imap_alerts();
@@ -105,225 +105,217 @@ class EmailReader
     }
 
     /**
-     * * Gets back a mail box handle for all future processing
-     * @param String $flags Use URL to see available flags
-     * @param null|String $folderName Folder name of opened mailbox folder when called by openMailBoxFolder()
-     * @return resource|\Utilities\EmailReaderError|null IMAPStream or error message on failure
+     * Gets back a mail box handle for all future processing
+     * @param string $flags Use URL to see available flags
+     * @param string|null $folderName Folder name of opened mailbox folder when called by openMailBoxFolder()
+     * @return Connection|EmailReaderError IMAP Connection or error message on failure
      * @example examples/exampleOpen.php
      */
-    function openMailBox($flags = "/imap/ssl", $folderName = null)
+    public function openMailBox(string $flags = "/imap/ssl", ?string $folderName = null): Connection|EmailReaderError
     {
         if (!empty($flags)) {
             $this->flags = $flags;
         }
         if (function_exists("imap_open")) {
+            $this->mailBox = imap_open(
+                "{{$this->host}:{$this->port}{$this->flags}}{$folderName}",
+                $this->username,
+                $this->password
+            );
 
-            $this->mailBox = imap_open("{{$this->host}:{$this->port}{$this->flags}}{$folderName}", $this->username, $this->password);
-
-            // Check for errors only after mailbox was tried to be opened
             $errors = $this->handleErrors();
 
-            // imap_open returns false if mailbox could not be opened (isset does not work here)
             if ($this->mailBox) {
                 return $this->mailBox;
             } else {
-
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-
-            return new EmailReaderError (EMAIL_ERROR_IMAP_ERROR, EMAIL_ERROR_IMAP_ERROR_MESSAGE);
+            return new EmailReaderError(ErrorCode::ImapError);
         }
     }
 
     /**
-     * * Gets a list of mailbox folders
-     * @param null|resource $mailBox IMAPStream
-     * @return array|\Utilities\EmailReaderError array[ [0] => , [1] => ] or error message on failure
+     * Gets a list of mailbox folders
+     * @param Connection|null $mailBox IMAP Connection
+     * @return array|EmailReaderError array of folder names or error message on failure
      * @example examples/exampleFolders.php
      */
-    function getMailBoxFolders($mailBox = null)
+    public function getMailBoxFolders(Connection|null $mailBox = null): array|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-
+        if ($this->isValidConnection($mailBox)) {
             $folders = imap_list($mailBox, "{{$this->host}}", "*");
             $parsedFolders = [];
-            foreach ($folders as $id => $folder) {
-                $tempName = explode("}", $folder); //Comes in the form {server}Folder
+            foreach ($folders as $folder) {
+                $tempName = explode("}", $folder);
                 if (isset($tempName[1])) {
                     $parsedFolders[] = $tempName[1];
                 } else {
                     $parsedFolders[] = $folder;
                 }
-
             }
 
             return $parsedFolders;
         } else {
-            return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::ImapStream, $errors);
         }
     }
 
     /**
-     * * Opens a mailbox stream in a specific mailbox folder
-     * @param String $folderName Folder name
-     * @return resource|\Utilities\EmailReaderError IMAPStream in the opened mailbox folder or error message on failure
+     * Opens a mailbox stream in a specific mailbox folder
+     * @param string|null $folderName Folder name
+     * @return Connection|EmailReaderError IMAP Connection in the opened mailbox folder or error message on failure
      * @example examples/exampleOpenFolder.php
      */
-    function openMailBoxFolder($folderName = null)
+    public function openMailBoxFolder(?string $folderName = null): Connection|EmailReaderError
     {
         $errors = $this->handleErrors();
-        if (isset($folderName) && !empty($folderName)) {
-            $this->mailBox = $this->openMailBox($this->flags, $folderName);
+        if (!empty($folderName)) {
+            $result = $this->openMailBox($this->flags ?? "/imap/ssl", $folderName);
+
+            if ($result instanceof EmailReaderError) {
+                return $result;
+            }
+
+            $this->mailBox = $result;
 
             return $this->mailBox;
         } else {
-            return new EmailReaderError (EMAIL_ERROR_MAILBOX_FOLDER, EMAIL_ERROR_MAILBOX_FOLDER_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::MailboxFolder, $errors);
         }
     }
 
     /**
-     * * Gets the message numbers of all messages that contain the parsed criteria
-     * @param String $searchCriteria Search criteria. List of search criteria: https://www.php.net/manual/en/function.imap-search.php
-     * @param null|resource $mailBox IMAPStream
-     * @return array|\Utilities\EmailReaderError array[ [0] => , [1]=> ] or error message on failure
+     * Gets the message numbers of all messages that contain the parsed criteria
+     * @param string $searchCriteria Search criteria. List of search criteria: https://www.php.net/manual/en/function.imap-search.php
+     * @param Connection|null $mailBox IMAP Connection
+     * @return array|EmailReaderError array of message numbers or error message on failure
      * @example examples/exampleSearch
      */
-    function search($searchCriteria, $mailBox = null)
+    public function search(string $searchCriteria, Connection|null $mailBox = null): array|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
 
-        if (isset($searchCriteria) && !empty($searchCriteria)) {
-            if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
+        if (!empty($searchCriteria)) {
+            if ($this->isValidConnection($mailBox)) {
                 $searchResult = imap_search($mailBox, $searchCriteria);
 
-                if (isset($searchResult)) {
-
+                if ($searchResult !== false) {
                     return $searchResult;
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_SEARCH_FAIL, EMAIL_ERROR_SEARCH_FAIL_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::SearchFail, $errors);
                 }
             } else {
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_SEARCH_CRITERIA, EMAIL_ERROR_SEARCH_CRITERIA_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::SearchCriteria, $errors);
         }
     }
 
     /**
-     * * Uses the message numbers to get and put all the message headers into an array
+     * Uses the message numbers to get and put all the message headers into an array
      * @param array $searchResult Array of search results from search()
-     * @param null|resource $mailBox IMAPStream
-     * @return array|\Utilities\EmailReaderError array[ [0] => , [1] => ] or error message on failure
+     * @param Connection|null $mailBox IMAP Connection
+     * @return array|EmailReaderError array of headers or error message on failure
      * @example examples/exampleSearchResultHeaders.php
      */
-    function getSearchResultHeaders($searchResult, $mailBox = null)
+    public function getSearchResultHeaders(array $searchResult, Connection|null $mailBox = null): array|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($searchResult) && !empty($searchResult)) {
-            if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
+        if (!empty($searchResult)) {
+            if ($this->isValidConnection($mailBox)) {
                 $searchResultHeaders = [];
 
                 foreach ($searchResult as $messageNumber) {
-
-                    $searchResultHeaders[] = imap_header($mailBox, $messageNumber);
+                    $searchResultHeaders[] = imap_headerinfo($mailBox, $messageNumber);
                 }
                 if (!empty($searchResultHeaders)) {
-
                     return $searchResultHeaders;
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_SEARCH_HEADERS_FAIL, EMAIL_ERROR_SEARCH_HEADERS_FAIL_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::SearchHeadersFail, $errors);
                 }
-
             } else {
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_SEARCH_HEADERS_RESULT, EMAIL_ERROR_SEARCH_HEADERS_RESULT_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::SearchHeadersResult, $errors);
         }
     }
 
     /**
-     * * Gets all the headers in the mailbox folder
-     * @param null|resource $mailBox IMAPStream
-     * @return array|\Utilities\EmailReaderError [ [0] => , [1] => ] or error message on failure
+     * Gets all the headers in the mailbox folder
+     * @param Connection|null $mailBox IMAP Connection
+     * @return array|EmailReaderError array of headers or error message on failure
      * @example examples/exampleMailBoxHeaders.php
      */
-    function getMailBoxHeaders($mailBox = null)
+    public function getMailBoxHeaders(Connection|null $mailBox = null): array|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-
-            $mailBoxHeaders = imap_headers($mailBox);
-
-            return $mailBoxHeaders;
+        if ($this->isValidConnection($mailBox)) {
+            return imap_headers($mailBox);
         } else {
-            return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::ImapStream, $errors);
         }
     }
 
     /**
-     * * Gets the headers of a specific message
-     * @param Integer $messageNumber Message number
-     * @param null|resource $mailBox IMAPStream
-     * @return object
+     * Gets the headers of a specific message
+     * @param int $messageNumber Message number
+     * @param Connection|null $mailBox IMAP Connection
+     * @return object|EmailReaderError
      * @example examples/exampleMessageHeader.php
      */
-    function getMessageHeader($messageNumber, $mailBox = null)
+    public function getMessageHeader(int $messageNumber, Connection|null $mailBox = null): \stdClass|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($messageNumber) && !empty($messageNumber)) {
-            if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-
-                $messageHeader = imap_header($mailBox, $messageNumber);
-
-                return $messageHeader;
+        if (!empty($messageNumber)) {
+            if ($this->isValidConnection($mailBox)) {
+                return imap_headerinfo($mailBox, $messageNumber);
             } else {
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
-
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_MESSAGE_NUMBER, EMAIL_ERROR_MESSAGE_NUMBER_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::MessageNumber, $errors);
         }
     }
 
     /**
-     * * Returns the ending result data array containing all the message's data
-     * @param Integer $messageNumber Message number
-     * @param null|resource $mailBox IMAPStream
-     * @return object {"htmlMessage" => , "plainMessage" => , "charset" => , "attachments" => };
+     * Returns the ending result data array containing all the message's data
+     * @param int $messageNumber Message number
+     * @param Connection|null $mailBox IMAP Connection
+     * @return object|EmailReaderError message data object or error on failure
      * @example examples/exampleMessageData.php
      */
-    function getMessageData($messageNumber, $mailBox = null)
+    public function getMessageData(int $messageNumber, Connection|null $mailBox = null): \stdClass|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($messageNumber) && !empty($messageNumber)) {
-            if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
+        if (!empty($messageNumber)) {
+            if ($this->isValidConnection($mailBox)) {
                 $emailMessage = (object)[];
 
                 $structure = imap_fetchstructure($mailBox, $messageNumber);
 
-                if (!$structure->parts) {
+                if (empty($structure->parts)) {
                     $emailMessage = $this->addMessageDataToArray($messageNumber, $structure, 0, $mailBox);
                 } else {
                     foreach ($structure->parts as $partNumber0 => $p) {
@@ -337,53 +329,58 @@ class EmailReader
                 $this->attachments = null;
 
                 return $emailMessage;
-
             } else {
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
-
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_MESSAGE_NUMBER, EMAIL_ERROR_MESSAGE_NUMBER_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::MessageNumber, $errors);
         }
     }
 
     /**
-     * * Returns the object containing the accumulated message parts
-     * @param Integer $messageNumber Message number of specified message
-     * @param Object $part Object of message part
-     * @param Integer $partNumber Part number
-     * @param null|resource $mailBox IMAPStream
-     * @return object|\Utilities\EmailReaderError
+     * Returns the object containing the accumulated message parts
+     * @param int $messageNumber Message number of specified message
+     * @param object $part Object of message part
+     * @param int|string $partNumber Part number
+     * @param Connection|null $mailBox IMAP Connection
+     * @return object|EmailReaderError
      */
-    function addMessageDataToArray($messageNumber, $part, $partNumber, $mailBox = null)
-    {
+    private function addMessageDataToArray(
+        int $messageNumber,
+        object $part,
+        int|string $partNumber,
+        Connection|null $mailBox = null
+    ): \stdClass|EmailReaderError {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($messageNumber) && !empty($messageNumber)) {
-            if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-
-                $data = ($partNumber) ? imap_fetchbody($mailBox, $messageNumber, $partNumber) : imap_body($mailBox, $partNumber);
-
+        if (!empty($messageNumber)) {
+            if ($this->isValidConnection($mailBox)) {
+                $data = ($partNumber) ? imap_fetchbody($mailBox, $messageNumber, (string)$partNumber) : imap_body(
+                    $mailBox,
+                    $messageNumber
+                );
 
                 $params = [];
-                if ($part->parameters) {
+                if (isset($part->parameters) && $part->parameters) {
                     foreach ($part->parameters as $parameters) {
                         $params[strtolower($parameters->attribute)] = $parameters->value;
                     }
                 }
-                if ($part->ifdparameters == 1) {
+                if (isset($part->ifdparameters) && $part->ifdparameters == 1) {
                     foreach ($part->dparameters as $dparameter) {
                         $params[strtolower($dparameter->attribute)] = $dparameter->value;
                     }
 
-                    if ($params["filename"] || $params["name"]) {
+                    if (isset($params["filename"]) || isset($params["name"])) {
+                        $filename = ($params["filename"] ?? null) ?: ($params["name"] ?? '');
 
-                        $filename = ($params["filename"]) ? $params["filename"] : $params["name"];
-
-                        $this->attachments[] = (object)array("encoding" => $part->encoding, "fileName" => $filename, "data" => $data);
-
+                        $this->attachments[] = (object)[
+                            "encoding" => $part->encoding,
+                            "fileName" => $filename,
+                            "data" => $data
+                        ];
                     }
                 }
 
@@ -398,7 +395,7 @@ class EmailReader
                         $this->plainMessage .= trim($data) . "\n\n";
                     } else {
                         $this->htmlMessage .= $data;
-                        $this->charset = $params["charset"];
+                        $this->charset = $params["charset"] ?? null;
                     }
                 }
 
@@ -408,260 +405,289 @@ class EmailReader
                     }
                 }
 
-                return (object)["htmlMessage" => $this->htmlMessage, "plainMessage" => $this->plainMessage, "charset" => $this->charset, "attachments" => $this->attachments];
-
+                return (object)[
+                    "htmlMessage" => $this->htmlMessage,
+                    "plainMessage" => $this->plainMessage,
+                    "charset" => $this->charset,
+                    "attachments" => $this->attachments
+                ];
             } else {
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
-
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_MESSAGE_NUMBER, EMAIL_ERROR_MESSAGE_NUMBER_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::MessageNumber, $errors);
         }
     }
 
     /**
-     * * Dumps the parsed message data's attachments to a directory location
-     * @param Object $messageData object{"htmlMessage" => , "plainMessage" => , "charset" => , "attachments" => };
-     * @param String $directory Directory destination
-     * @return bool|\Utilities\EmailReaderError True on success or error message on failure
+     * Dumps the parsed message data's attachments to a directory location
+     * @param object $messageData message data object from getMessageData()
+     * @param string $directory Directory destination
+     * @return bool|EmailReaderError True on success or error message on failure
      * @example examples/exampleDumpAttachments.php
      */
-    function dumpAttachments($messageData, $directory)
+    public function dumpAttachments(object $messageData, string $directory): bool|EmailReaderError
     {
-        if (isset($messageData) && !empty($messageData) && is_object($messageData)) {
-            if (isset($directory) && !empty($directory)) {
-                if (isset($messageData->attachments) && !empty($messageData->attachments)) {
+        if (!empty($directory)) {
+            if (!empty($messageData->attachments)) {
+                foreach ($messageData->attachments as $attachment) {
+                    $fp = fopen($directory . $attachment->fileName, "w+");
 
-                    foreach ($messageData->attachments as $attachment) {
-                        $fp = fopen($directory . $attachment->fileName, "w+");
-
-                        if ($attachment->encoding == ENCQUOTEDPRINTABLE) {
-
-                            fwrite($fp, quoted_printable_decode($attachment->data));
-
-                        } elseif ($attachment->encoding == ENCBASE64) {
-
-                            fwrite($fp, base64_decode($attachment->data));
-
-                        }
-                        fclose($fp);
+                    if ($attachment->encoding == ENCQUOTEDPRINTABLE) {
+                        fwrite($fp, quoted_printable_decode($attachment->data));
+                    } elseif ($attachment->encoding == ENCBASE64) {
+                        fwrite($fp, base64_decode($attachment->data));
                     }
-                    return true;
-                } else {
-                    return new EmailReaderError (EMAIL_ERROR_DUMP_ATTACHMENTS_NOT_EXIST, EMAIL_ERROR_DUMP_ATTACHMENTS_NOT_EXIST_MESSAGE);
+                    fclose($fp);
                 }
+
+                return true;
             } else {
-                return new EmailReaderError (EMAIL_ERROR_DUMP_ATTACHMENTS_DIRECTORY, EMAIL_ERROR_DUMP_ATTACHMENTS_DIRECTORY_MESSAGE);
+                return new EmailReaderError(ErrorCode::DumpAttachmentsNotExist);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_DUMP_ATTACHMENTS_DATA, EMAIL_ERROR_DUMP_ATTACHMENTS_DATA_MESSAGE);
+            return new EmailReaderError(ErrorCode::DumpAttachmentsDirectory);
         }
     }
 
     /**
-     * * Sets the message status by setting message flags
-     * @param Integer|String $sequence - contains the message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
-     * @param String $newMessageStatus Message of parsed defined constant: EMAIL_SEEN, EMAIL_FLAGGED, EMAIL_DELETED, EMAIL_DRAFT, EMAIL_ANSWERED
-     * @param null|resource $mailBox IMAPStream
-     * @return bool|\Utilities\EmailReaderError True on success or error message on failure
+     * Sets the message status by setting message flags
+     * @param int|string $sequence Message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
+     * @param string $newMessageStatus Message of parsed EmailFlag value
+     * @param Connection|null $mailBox IMAP Connection
+     * @return bool|EmailReaderError True on success or error message on failure
      * @example examples/exampleSetMessageStatus.php
      */
-    function setMessageStatus($sequence, $newMessageStatus, $mailBox = null)
-    {
+    public function setMessageStatus(
+        int|string $sequence,
+        string $newMessageStatus,
+        Connection|null $mailBox = null
+    ): bool|EmailReaderError {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($sequence) && !empty($sequence)) {
-            if (isset($newMessageStatus) && !empty($newMessageStatus)) {
-                if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-                    $setFlagResult = imap_setflag_full($mailBox, $sequence, $newMessageStatus);
+        if (!empty($sequence)) {
+            if (!empty($newMessageStatus)) {
+                if ($this->isValidConnection($mailBox)) {
+                    $setFlagResult = imap_setflag_full($mailBox, (string)$sequence, $newMessageStatus);
 
-                    if (isset($setFlagResult)) {
+                    if ($setFlagResult) {
                         imap_expunge($mailBox);
+
                         return true;
                     } else {
-                        return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_SET_FLAG, EMAIL_ERROR_EDIT_MESSAGE_SET_FLAG, $errors);
+                        return new EmailReaderError(ErrorCode::EditMessageSetFlag, $errors);
                     }
-
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::ImapStream, $errors);
                 }
             } else {
-                return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_STATUS_NEW_MESSAGE_STATUS, EMAIL_ERROR_EDIT_MESSAGE_STATUS_NEW_MESSAGE_STATUS_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::EditMessageStatusNewMessageStatus, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE, EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::EditMessageStatusSequence, $errors);
         }
     }
 
     /**
-     * * Sets the message status by clearing message flags
-     * @param Integer|String $sequence - contains the message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
-     * @param String $clearedMessageStatus Message of parsed defined constant: EMAIL_SEEN, EMAIL_FLAGGED, EMAIL_DELETED, EMAIL_DRAFT, EMAIL_ANSWERED
-     * @param null|resource $mailBox IMAPStream
-     * @return bool|\Utilities\EmailReaderError True on success or error message on failure
+     * Sets the message status by clearing message flags
+     * @param int|string $sequence Message number(s) for the flags to be cleared on. Example: "2,5" - message numbers 2 to 5
+     * @param string $clearedMessageStatus Message of parsed EmailFlag value
+     * @param Connection|null $mailBox IMAP Connection
+     * @return bool|EmailReaderError True on success or error message on failure
      * @example examples/exampleClearMessageStatus.php
      */
-    function clearMessageStatus($sequence, $clearedMessageStatus, $mailBox = null)
-    {
+    public function clearMessageStatus(
+        int|string $sequence,
+        string $clearedMessageStatus,
+        Connection|null $mailBox = null
+    ): bool|EmailReaderError {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($sequence) && !empty($sequence)) {
-            if (isset($clearedMessageStatus) && !empty($clearedMessageStatus)) {
-                if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-                    $clearFlagResult = imap_clearflag_full($mailBox, $sequence, $clearedMessageStatus);
+        if (!empty($sequence)) {
+            if (!empty($clearedMessageStatus)) {
+                if ($this->isValidConnection($mailBox)) {
+                    $clearFlagResult = imap_clearflag_full($mailBox, (string)$sequence, $clearedMessageStatus);
 
                     imap_expunge($mailBox);
 
-                    if (isset($clearFlagResult)) {
+                    if ($clearFlagResult) {
                         return true;
                     } else {
-                        return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_CLEAR_FLAG, EMAIL_ERROR_EDIT_MESSAGE_CLEAR_FLAG_MESSAGE, $errors);
+                        return new EmailReaderError(ErrorCode::EditMessageClearFlag, $errors);
                     }
-
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::ImapStream, $errors);
                 }
             } else {
-                return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_STATUS_NEW_MESSAGE_STATUS, EMAIL_ERROR_EDIT_MESSAGE_STATUS_NEW_MESSAGE_STATUS_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::EditMessageStatusNewMessageStatus, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE, EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::EditMessageStatusSequence, $errors);
         }
     }
 
     /**
-     * * Moves message(s) to a specified folder
-     * @param Integer|String $sequence - contains the message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
-     * @param String $destination Destination mailbox folder name
-     * @param null|resource $mailBox IMAPStream
-     * @return bool|\Utilities\EmailReaderError True on success or error message on failure
+     * Moves message(s) to a specified folder
+     * @param int|string $sequence Message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
+     * @param string $destination Destination mailbox folder name
+     * @param Connection|null $mailBox IMAP Connection
+     * @return bool|EmailReaderError True on success or error message on failure
      * @example examples/exampleMessageMove.php
      */
-    function messageMove($sequence, $destination, $mailBox = null)
-    {
+    public function messageMove(
+        int|string $sequence,
+        string $destination,
+        Connection|null $mailBox = null
+    ): bool|EmailReaderError {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
 
-        if (isset($sequence) && !empty($sequence)) {
-            if (isset($destination) && !empty($destination)) {
-                if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-                    $moveResult = imap_mail_move($mailBox, $sequence, $destination);
+        if (!empty($sequence)) {
+            if (!empty($destination)) {
+                if ($this->isValidConnection($mailBox)) {
+                    $moveResult = imap_mail_move($mailBox, (string)$sequence, $destination);
 
-                    if (isset($moveResult)) {
+                    if ($moveResult) {
                         imap_expunge($mailBox);
+
                         return true;
                     } else {
-                        return new EmailReaderError (EMAIL_ERROR_MESSAGE_MOVE, EMAIL_ERROR_MESSAGE_MOVE_MESSAGE, $errors);
+                        return new EmailReaderError(ErrorCode::MessageMove, $errors);
                     }
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::ImapStream, $errors);
                 }
             } else {
-                return new EmailReaderError (EMAIL_ERROR_DESTINATION_FOLDER, EMAIL_ERROR_DESTINATION_FOLDER_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::DestinationFolder, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE, EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::EditMessageStatusSequence, $errors);
         }
     }
 
     /**
-     * * Copies message(s) and pastes it in a specified folder
-     * @param Integer|String  $sequence - contains the message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
-     * @param String $destination Destination mailbox folder name
-     * @param null|resource $mailBox IMAPStream
-     * @return bool|\Utilities\EmailReaderError True on success or error message on failure
+     * Copies message(s) and pastes it in a specified folder
+     * @param int|string $sequence Message number(s) for the flags to be set on. Example: "2,5" - message numbers 2 to 5
+     * @param string $destination Destination mailbox folder name
+     * @param Connection|null $mailBox IMAP Connection
+     * @return bool|EmailReaderError True on success or error message on failure
      * @example examples/exampleMessageCopy.php
      */
-    function messageCopy($sequence, $destination, $mailBox = null)
-    {
+    public function messageCopy(
+        int|string $sequence,
+        string $destination,
+        Connection|null $mailBox = null
+    ): bool|EmailReaderError {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
 
-        if (isset($sequence) && !empty($sequence)) {
-            if (isset($destination) && !empty($destination)) {
-                if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-                    $copyResult = imap_mail_copy($mailBox, $sequence, $destination);
+        if (!empty($sequence)) {
+            if (!empty($destination)) {
+                if ($this->isValidConnection($mailBox)) {
+                    $copyResult = imap_mail_copy($mailBox, (string)$sequence, $destination);
 
-                    if (isset($copyResult)) {
+                    if ($copyResult) {
                         return true;
                     } else {
-                        return new EmailReaderError (EMAIL_ERROR_MESSAGE_MOVE, EMAIL_ERROR_MESSAGE_MOVE_MESSAGE, $errors);
+                        return new EmailReaderError(ErrorCode::MessageMove, $errors);
                     }
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::ImapStream, $errors);
                 }
             } else {
-                return new EmailReaderError (EMAIL_ERROR_DESTINATION_FOLDER, EMAIL_ERROR_DESTINATION_FOLDER_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::DestinationFolder, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE, EMAIL_ERROR_EDIT_MESSAGE_STATUS_SEQUENCE_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::EditMessageStatusSequence, $errors);
         }
     }
 
-
     /**
-     * * Deletes a specific message
-     * @param Integer $messageNumber The message number
-     * @param null|resource $mailBox IMAPStream
-     * @return bool|\Utilities\EmailReaderError True for success or error on failure
+     * Deletes a specific message
+     * @param int $messageNumber The message number
+     * @param Connection|null $mailBox IMAP Connection
+     * @return bool|EmailReaderError True for success or error on failure
      * @example examples/exampleMessageDelete.php
      */
-    function messageDelete($messageNumber, $mailBox = null)
+    public function messageDelete(int $messageNumber, Connection|null $mailBox = null): bool|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($messageNumber) && !empty($messageNumber)) {
-            if (isset($mailBox) && !empty($mailBox) && is_resource($mailBox)) {
-                //   $deleteResult = imap_delete($mailBox, $messageNumber);
-                $setFlagResult = imap_setflag_full($mailBox, $messageNumber, EMAIL_DELETED);
-                if (isset($setFlagResult)) {
-
+        if (!empty($messageNumber)) {
+            if ($this->isValidConnection($mailBox)) {
+                $setFlagResult = imap_setflag_full($mailBox, (string)$messageNumber, EmailFlag::Deleted->value);
+                if ($setFlagResult) {
                     imap_expunge($mailBox);
+
                     return true;
                 } else {
-                    return new EmailReaderError (EMAIL_ERROR_DELETE_MESSAGE, EMAIL_ERROR_DELETE_MESSAGE_MESSAGE, $errors);
+                    return new EmailReaderError(ErrorCode::DeleteMessage, $errors);
                 }
-
             } else {
-                return new EmailReaderError (EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::ImapStream, $errors);
             }
         } else {
-            return new EmailReaderError (EMAIL_ERROR_MESSAGE_NUMBER, EMAIL_ERROR_MESSAGE_NUMBER_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::MessageNumber, $errors);
         }
     }
 
     /**
-     * * Closes the mailbox stream
-     * @param null|resource $mailBox IMAPStream
-     * @return bool|\Utilities\EmailReaderError True for success or error message on failure
+     * Extracts message numbers from search result headers
+     * @param array $searchResultHeaders Array of header objects from getSearchResultHeaders()
+     * @return array|EmailReaderError Array of message numbers or error on failure
+     */
+    public function getMessageNumbersForSearch(array $searchResultHeaders): array|EmailReaderError
+    {
+        if (empty($searchResultHeaders)) {
+            return new EmailReaderError(ErrorCode::SearchHeaders);
+        }
+
+        $messageNumbers = [];
+        foreach ($searchResultHeaders as $header) {
+            if (isset($header->Msgno)) {
+                $messageNumbers[] = (int)trim($header->Msgno);
+            }
+        }
+
+        if (empty($messageNumbers)) {
+            return new EmailReaderError(ErrorCode::SearchHeaders);
+        }
+
+        return $messageNumbers;
+    }
+
+    /**
+     * Closes the mailbox stream
+     * @param Connection|null $mailBox IMAP Connection
+     * @return bool|EmailReaderError True for success or error message on failure
      * @example examples/exampleClose.php
      */
-    function close($mailBox = null)
+    public function close(Connection|null $mailBox = null): bool|EmailReaderError
     {
         if (empty($mailBox) && !empty($this->mailBox)) {
             $mailBox = $this->mailBox;
         }
         $errors = $this->handleErrors();
-        if (isset($mailBox) && is_resource($mailBox)) {
+        if ($this->isValidConnection($mailBox)) {
             $closeResult = imap_close($mailBox, CL_EXPUNGE);
 
             if ($closeResult) {
-                return $closeResult;
+                return true;
             } else {
-                return new EmailReaderError(EMAIL_ERROR_IMAP_CLOSE_FAILURE, EMAIL_ERROR_IMAP_CLOSE_FAILURE_MESSAGE, $errors);
+                return new EmailReaderError(ErrorCode::ImapCloseFailure, $errors);
             }
         } else {
-            return new EmailReaderError(EMAIL_ERROR_IMAP_STREAM, EMAIL_ERROR_IMAP_STREAM_MESSAGE, $errors);
+            return new EmailReaderError(ErrorCode::ImapStream, $errors);
         }
     }
 }

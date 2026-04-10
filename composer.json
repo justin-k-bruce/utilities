@@ -9,18 +9,13 @@
     }
   ],
   "require-dev": {
-    "codeception/codeception": "^4.1.22",
-    "phpdocumentor/phpdocumentor": "^2.0.5"
+    "codeception/codeception": "^5.0"
   },
   "require": {
-    "ext-imap": "*",
-    "jms/serializer": "1.7.*"
+    "php": "^8.2",
+    "ext-imap": "*"
   },
   "autoload": {
-    "classmap": [
-      "./classes/EmailReader.php",
-      "./classes/EmailReaderError.php"
-    ],
     "psr-4": {
       "Utilities\\": "classes/"
     }
